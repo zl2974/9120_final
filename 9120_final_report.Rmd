@@ -1,0 +1,323 @@
+---
+title: "Proposal"
+author: "Zhuohui Liang/zl2974"
+output: pdf_document
+fontsize : 10pt
+geometry:
+  margin=0.6in
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{setspace}\singlespacing
+  - \usepackage{graphicx}
+  - \usepackage{algpseudocode}
+  - \usepackage{algorithm}
+  - \usepackage{todonotes}
+  - \usepackage[backend=biber,style=apa,]{biblatex}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F,
+                      warning = F,
+                      message = F)
+
+library(SNFtool)
+library(tidyverse)
+library(gplots)
+library(foreach)
+library(doParallel)
+library(parallel)
+library(ggfortify)
+library(lattice)
+library(gridExtra)
+library(reticulate)
+
+use_python("~/anaconda3/bin/python")
+
+source(here::here("R/DiMSC.R"))
+source(here::here("R/PMSC.R"))
+
+knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(123123)
+
+cl = makePSOCKcluster(6)
+registerDoParallel(cl)
+
+simulate_data = function(
+  signal = 1,
+  sigma = NA,
+  n = 50,
+  n_var = 20
+){
+  #if(!is.list(signal)) stop("signal should be a list of mean difference of different signals")
+  signal = as.list(signal)
+  
+  n_group = length(signal)
+  
+  n_signal = n_var%/%n_group
+  
+  Mu = do.call(c,lapply(signal, function(x) rep(x,n_signal)))
+  
+  Mu = c(Mu,rep(0,n_var - length(Mu)))
+  
+  if (is.na(sigma))
+    Sigma = diag(n_var)
+  if (!is.matrix(sigma) &
+      !is.na(sigma) & is.numeric(sigma))
+    Sigma = diag(rep(sigma, n_var))
+  
+  
+  return(MASS::mvrnorm(n = n,
+                       mu = Mu,
+                       Sigma = Sigma))
+}
+
+add_noise = function(data,p_noise){
+  
+  if(p_noise <= 0 ) return(data)
+  
+  n_row = nrow(data)
+  
+  Mu = rep(0,p_noise)
+  
+  noise = MASS::mvrnorm(n_row,Mu,diag(p_noise))
+  
+  return(cbind(data,noise))
+  
+}
+```
+
+## Introduction
+
+  A biology phenotypes can be represent in a number of layers information: clinical(eletronic health record), methylation level, miRNA expression and etc. Some biological process might be identifiable in one type of biological data but not identifiable in another level.And thus multi-view integration is proposed to enhance the signal in different layers of data.  Similarity Network Fusion(SNF)\cite{wang2014similarity} are proposed to fuse information from different omics data via interactively fusing between similarity matrix and draw cluster result on the fused similarity matrix. Multiview Diversity Matrix put a independent constrain terms on the optimization forcing learned self-representation matrix contains complementary information from different view of data and cluster on the combined complementary similarity matrix. Multiview Non-negative Matrix Factorization is proposed to recursively optimize learned factor loads, factors and consensus cluster result to reach consensus result from different view. 
+  
+  However, besides SNF is build for biological data, all other methods come from computation vision, thus all has an underlying assumption that all data contains information of same number of clusters to achieve signal boosting. This assumption tends not to hold in biological data. The goal of this report is to test if multiview data integration method can boost clustering result in biological settings.  In specific SNF will be compared with the other two methods with on different scenarios which one data only have information to separate some of the clusters but not all. Information from all data are need to find the true clusters. And also test the clustering performance of each methods when data contribute differently on clustering results.
+
+
+## Method
+
+### Similarity Network Fusion
+
+### DIMIC
+
+### 
+
+### Simulation
+
+#### Scenario I
+
+This is a simple simulation to demonstrate how the above mention data integration method works. In this scenario, we have two data, each data have 3 clusters and each cluster has 100 subjects. Each subjects has 100 features, and first 10 features are signal to seperate subjects from different clusters. First 5 features from data 1 are sample from N(1,1) for subjects from cluster 1 and N(0,1) for cluster 2,3. Next 5 features cluster 2 from data 1 are sample from N(1,1) and cluster 1,3 are sample from N(0,1) such that data using the first 5 features, we can separate cluster 1 from 2 and 3 and using next 5 to separate cluster 2 from 3. The rest 90 features are sample from N(0,1) as noise. Data 2 are generated with similar framework and the same effect size. 
+
+#### scenario II
+
+Three data are generated to represent 4 clusters, in each cluster we have 100 subjects and each subject records 100 features but only the first 10 are signal features that provide information to separate different clusters and the rest of the features are noise sample from N(0,1). 
+For data 1, the signal features for cluster 1 are sample from N(1,1) and the other clusters from N(0,1), such that data 1 have 2 separable clusters and cluster 1 can be separated from 2,3 and 4. The other data follow similar design such that data 2 can separate cluster 2 from 1,2,4 and data 3 separate cluster 3 from 1,2 and 4. 
+
+
+In the second settings, we follow the same design but set all the standard deviation to 2 to decrease the effect size.
+
+In the third settings, we further decrease the effect size by setting the standard deviation to 3.
+
+I will compare k-means with data concatenation against SNF with spectral clusting and DIMSC with spectral clustering
+
+#### scenario III
+
+Again we have 3 data and 4 clusters, each cluster has 100 subjects. In this scenario, data 1 has 1000 features, data 2 has 1e+4 and data 3 has 1e+5 features. The first 10% features are set to be signals and the rest as noise sample from N(0,1). we set the signal in each data as scenario I such that all data are needed to find ground truth clustering result. We also test the case when effect size is set as settings 2,3 in scenario I.
+
+# Result
+
+## Simulation
+
+### Scenario I
+
+```{r}
+s1 = rbind(
+  simulate_data(c(0, 0,  1), n_var = 6,sigma = 2),
+  simulate_data(c(1, 0,  0), n_var = 6,sigma = 2),
+  simulate_data(c(0, 1,  0), n_var = 6,sigma = 2)
+)
+
+
+s2 = rbind(
+  simulate_data(c(0, 1, 0), n_var = 6,sigma = 2),
+  simulate_data(c(0, 0, 1), n_var = 6,sigma = 2),
+  simulate_data(c(1, 0, 0), n_var = 6,sigma = 2)
+)
+
+data_list = list(s1, s2)
+
+data_list = lapply(data_list, function(x) add_noise(x,94))
+
+true_label = as.factor(sort(rep(1:3, 50)))
+
+do.call(grid.arrange, c(lapply(data_list, function(x)
+  levelplot(t(x), aspect = "fill")), ncol = 2))
+
+do.call(grid.arrange, c(lapply(data_list, function(x) {
+  x = as_tibble(x)
+  x$label = true_label
+  autoplot(prcomp(x[,-ncol(x)]), data = x, colour = "label")
+}), ncol = 2))
+```
+
+
+
+
+```{r}
+set.seed(123123)
+
+sim_1 =
+  foreach(i = 1:20,
+          .combine = "cbind",
+          .packages = c("SNFtool")) %dopar% {
+            
+            s1 = rbind(
+              simulate_data(c(0, 0,  1), n_var = 90),
+              simulate_data(c(1, 0,  0), n_var = 90),
+              simulate_data(c(0, 1,  0), n_var = 90)
+            )
+            
+            
+            s2 = rbind(
+              simulate_data(c(0, 1, 0), n_var = 90),
+              simulate_data(c(0, 0, 1), n_var = 90),
+              simulate_data(c(1, 0, 0), n_var = 90)
+            )
+            
+            data_list = list(s1, s2)
+            
+            # data_list = lapply(data_list, function(x)
+            #   add_noise(x, 188))
+            
+
+            result_kmeans = kmeans(do.call(cbind, data_list), 3)$cluster
+            
+            result_snf = spectralClustering(SNF(lapply(data_list, function(x) {
+              affinityMatrix(as.matrix(dist(x)),
+                             K = 20,
+                             sigma = 0.5)
+            })),
+            K = 3)
+            
+            result_PMSC = PMSC(
+              data_list,
+              K = 3,
+              alpha = 100,
+              beta = 0.001,
+              gamma = 0.001
+            )$Y
+            
+            c(
+              calNMI(true_label, result_kmeans),
+              calNMI(true_label, result_snf),
+              calNMI(true_label, result_PMSC)
+            )
+          }
+```
+
+
+```{r}
+t(sim_1) %>% 
+  as_tibble() %>% 
+  rename(kmean = V1, SNF = V2, PSMC = V3)
+```
+
+
+### Scenario II
+
+```{r}
+s1 = rbind(
+  simulate_data(c(1), n_var = 10),
+  simulate_data(c(0), n_var = 10),
+  simulate_data(c(0), n_var = 10),
+  simulate_data(c(0), n_var = 10)
+)
+
+
+s2 = rbind(
+  simulate_data(c(0), n_var = 10),
+  simulate_data(c(1), n_var = 10),
+  simulate_data(c(0), n_var = 10),
+  simulate_data(c(0), n_var = 10)
+)
+
+
+s3 = rbind(
+  simulate_data(c(0), n_var = 10),
+  simulate_data(c(0), n_var = 10),
+  simulate_data(c(1), n_var = 10),
+  simulate_data(c(0), n_var = 10)
+)
+
+data_list = list(s1, s2, s3)
+
+data_list = lapply(data_list, function(x) add_noise(x,90))
+
+true_label = as.factor(sort(rep(1:4, 50)))
+
+do.call(grid.arrange, c(lapply(data_list, function(x)
+  levelplot(t(x), aspect = "fill",main = "scenario I")), ncol = 2))
+
+do.call(grid.arrange, c(lapply(data_list, function(x) {
+  x = as_tibble(x)
+  x$label = true_label
+  autoplot(prcomp(x[,-ncol(x)]), data = x, colour = "label",main = "Scenario I")
+}), ncol = 2))
+```
+
+```{r}
+result_kmeans = kmeans(do.call(cbind, data_list), 3)$cluster
+
+result_snf = spectralClustering(SNF(lapply(data_list, function(x) {
+  affinityMatrix(as.matrix(dist(x)),
+                 K = 20,
+                 sigma = 0.6)
+})),
+K = 3)
+
+result_PMSC = PMSC(
+  data_list,
+  K = 3,
+  alpha = 100,
+  beta = 0.001,
+  gamma = 0.001
+)$Y
+
+c(
+  calNMI(true_label, result_kmeans),
+  calNMI(true_label, result_snf),
+  calNMI(true_label, result_PMSC)
+)
+```
+
+
+### Scenario II
+
+
+### TCGA result
+
+```{r}
+mirna = read.csv("data/Human__TCGA_KIRP__BDGSC__miRNASeq__HS_miR__01_28_2016__BI__Gene__Firehose_RPM_log2.cct",sep = "\t")
+
+methylation = read.csv("data/Human__TCGA_KIRP__JHU_USC__Methylation__Meth450__01_28_2016__BI__Gene__Firehose_Methylation_Prepocessor.cct",sep = "\t")
+
+rnaseq = read.csv("data/Human__TCGA_KIRP__UNC__RNAseq__HiSeq_RNA__01_28_2016__BI__Gene__Firehose_RSEM_log2.cct",sep = "\t")
+
+survival = read.csv("data/Human__TCGA_KIRP__MS__Clinical__Clinical__01_28_2016__BI__Clinical__Firehose.tsi",sep = "\t") 
+
+sample_name = intersect(intersect(colnames(mirna),colnames(methylation)),
+                        colnames(rnaseq))
+
+mirna = t(mirna[,sample_name])
+methylation = t(methylation[,sample_name])
+rnaseq = t(rnaseq[,sample_name])
+survival = t(survival[,sample_name])
+```
+
+
+
+\bibliographystyle{alpha}
+\bibliography{reference}
+
+
