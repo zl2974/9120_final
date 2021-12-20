@@ -31,11 +31,13 @@ library(ggfortify)
 library(lattice)
 library(gridExtra)
 library(reticulate)
+library(survival)
 
 use_python("~/anaconda3/bin/python")
 
 source(here::here("R/DiMSC.R"))
 source(here::here("R/PMSC.R"))
+source(here::here("R/normalize.R"))
 
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -73,15 +75,18 @@ simulate_data = function(
                        Sigma = Sigma))
 }
 
-add_noise = function(data,p_noise){
+add_noise = function(data,p_noise,sigma = NULL){
   
   if(p_noise <= 0 ) return(data)
+  
+  if(is.null(sigma)) sigma = 1
+  
   
   n_row = nrow(data)
   
   Mu = rep(0,p_noise)
   
-  noise = MASS::mvrnorm(n_row,Mu,diag(p_noise))
+  noise = MASS::mvrnorm(n_row,Mu,sigma*diag(p_noise))
   
   return(cbind(data,noise))
   
@@ -99,15 +104,84 @@ add_noise = function(data,p_noise){
 
 ### Similarity Network Fusion
 
-### DIMIC
 
-### 
+$$P(i,j) = exp(\frac{dist(X_i-X_j)}{\sigma})$$
+
+$$S = knn(P)$$
+
+$$P_1^{t+1} = S_2^tP_1^tS_2^t$$
+
+```{r}
+data("Data1")
+data("Data2")
+
+Data1 = as.matrix(Data1)
+Data2 = as.matrix(Data2)
+
+s1 = affinityMatrix(as.matrix(dist(Data1))) %>% as.matrix()
+s2 = affinityMatrix(as.matrix(dist(Data2))) %>% as.matrix()
+snf = SNF(list(s1,s2)) %>% as.matrix()
+diag(snf) = 0
+
+g1 = levelplot(
+  s1,
+  main = "data1",
+  xlab = NULL,
+  ylab = NULL,
+  cuts = 8,
+  colorkey = FALSE,
+  scales = list(x = list(at = NULL),
+                y = list(at = NULL))
+)
+g2 = levelplot(
+  s2,
+  main = "data2",
+  xlab = NULL,
+  ylab = NULL,
+  cuts = 8,
+  colorkey = T,
+  scales = list(x = list(at = NULL),
+                y = list(at = NULL))
+)
+g3 = levelplot(
+  snf,
+  main = "SNF",
+  xlab = NULL,
+  ylab = NULL,
+  cuts = 8,
+  colorkey = T,
+  scales = list(x = list(at = NULL),
+                y = list(at = NULL))
+)
+
+grid.arrange(g1,g2,ncol = 2)
+plot(g3)
+```
+
+
+### DIMSC
+
+$$argmin_Z\sum_v||X^v-X^vZ^v|| + \alpha Tr(Z^vL^vZ^v) +\beta\mbox{Ind}(Z^1,Z^2,...Z^v)$$
+
+```{r}
+a = DiMSC(list(Data1,Data2),w_function = cor,K=2)
+grid.arrange(levelplot(a$Z[[1]],cuts=8),
+             levelplot(a$Z[[2]],cuts=8),ncol=2)
+levelplot(a$A,cuts=8)
+```
+
+
+### PMSC
+
+$$argmin_{Z,F,Y} \sum_v||X^v-X^vZ^v|| + \alpha Tr(F^vZ^vF^{v^T}) + \beta||YY^T-F^vF^{v^T}||+\gamma Sparsity$$
 
 ### Simulation
 
 #### Scenario I
 
-This is a simple simulation to demonstrate how the above mention data integration method works. In this scenario, we have two data, each data have 3 clusters and each cluster has 100 subjects. Each subjects has 100 features, and first 10 features are signal to seperate subjects from different clusters. First 5 features from data 1 are sample from N(1,1) for subjects from cluster 1 and N(0,1) for cluster 2,3. Next 5 features cluster 2 from data 1 are sample from N(1,1) and cluster 1,3 are sample from N(0,1) such that data using the first 5 features, we can separate cluster 1 from 2 and 3 and using next 5 to separate cluster 2 from 3. The rest 90 features are sample from N(0,1) as noise. Data 2 are generated with similar framework and the same effect size. 
+This is a simple simulation to demonstrate how the above mention data integration method works. In this scenario, we have two data, each data have 3 clusters and each cluster has 100 subjects. Each subjects has 500 features, and first 12 features are signal to separate subjects from different clusters. First 4 features from data 1 are sample from N(1,2) for subjects from cluster 1 and N(0,2) for cluster 2,3. Next 4 features cluster 2 from data 1 are sample from N(1,2) and cluster 1,3 are sample from N(0,2) and etc. such that data using the first 4 features, we can separate cluster 1 from 2 and 3 and using next 4 to separate cluster 2 from 3 and so on. The rest  features are sample from N(0,2) as noise. Data 2 are generated with similar framework and the same effect size. 
+
+We compare K-means with SNF, DiMSC and PMSC.
 
 #### scenario II
 
@@ -133,26 +207,26 @@ Again we have 3 data and 4 clusters, each cluster has 100 subjects. In this scen
 
 ```{r}
 s1 = rbind(
-  simulate_data(c(0, 0,  1), n_var = 6,sigma = 2),
-  simulate_data(c(1, 0,  0), n_var = 6,sigma = 2),
-  simulate_data(c(0, 1,  0), n_var = 6,sigma = 2)
+  simulate_data(c(0, 0, 1), n_var = 48,sigma = 2),
+  simulate_data(c(1, 0, 0), n_var = 48,sigma = 2),
+  simulate_data(c(0, 1, 0), n_var = 48,sigma = 2)
 )
 
 
 s2 = rbind(
-  simulate_data(c(0, 1, 0), n_var = 6,sigma = 2),
-  simulate_data(c(0, 0, 1), n_var = 6,sigma = 2),
-  simulate_data(c(1, 0, 0), n_var = 6,sigma = 2)
+  simulate_data(c(0, 1, 0), n_var = 48,sigma = 2),
+  simulate_data(c(0, 0, 1), n_var = 48,sigma = 2),
+  simulate_data(c(1, 0, 0), n_var = 48,sigma = 2)
 )
 
 data_list = list(s1, s2)
 
-data_list = lapply(data_list, function(x) add_noise(x,94))
+data_list = lapply(data_list, function(x) add_noise(x,500-48,2))
 
 true_label = as.factor(sort(rep(1:3, 50)))
 
 do.call(grid.arrange, c(lapply(data_list, function(x)
-  levelplot(t(x), aspect = "fill")), ncol = 2))
+  levelplot(t(x), aspect = "fill",cuts = 8)), ncol = 2))
 
 do.call(grid.arrange, c(lapply(data_list, function(x) {
   x = as_tibble(x)
@@ -164,63 +238,76 @@ do.call(grid.arrange, c(lapply(data_list, function(x) {
 
 
 
+
 ```{r}
 set.seed(123123)
 
+# pretrain_1 = SNF_tuning(data_list,K=3)
+# pretrain_1$NMI = sapply(pretrain_1$cluster,function(x) calNMI(true_label,x))
+# pretrain_1[which.max(pretrain_1$NMI),]
+
 sim_1 =
   foreach(i = 1:20,
-          .combine = "cbind",
-          .packages = c("SNFtool")) %dopar% {
+          .combine = "rbind",
+          .packages = c("SNFtool","tidyverse")) %dopar% {
             
             s1 = rbind(
-              simulate_data(c(0, 0,  1), n_var = 90),
-              simulate_data(c(1, 0,  0), n_var = 90),
-              simulate_data(c(0, 1,  0), n_var = 90)
+              simulate_data(c(0, 0, 1), n_var = 48, sigma = 2),
+              simulate_data(c(1, 0, 0), n_var = 48, sigma = 2),
+              simulate_data(c(0, 1, 0), n_var = 48, sigma = 2)
             )
             
             
             s2 = rbind(
-              simulate_data(c(0, 1, 0), n_var = 90),
-              simulate_data(c(0, 0, 1), n_var = 90),
-              simulate_data(c(1, 0, 0), n_var = 90)
+              simulate_data(c(0, 1, 0), n_var = 48, sigma = 2),
+              simulate_data(c(0, 0, 1), n_var = 48, sigma = 2),
+              simulate_data(c(1, 0, 0), n_var = 48, sigma = 2)
             )
             
             data_list = list(s1, s2)
             
-            # data_list = lapply(data_list, function(x)
-            #   add_noise(x, 188))
+            data_list = lapply(data_list, function(x)
+              add_noise(x, 500 - 48, 2))
             
-
-            result_kmeans = kmeans(do.call(cbind, data_list), 3)$cluster
+            
+            result_kmeans = kmeans(do.call(cbind, data_list), 3,
+                                   algorithm = "MacQueen")$cluster
             
             result_snf = spectralClustering(SNF(lapply(data_list, function(x) {
               affinityMatrix(as.matrix(dist(x)),
-                             K = 20,
-                             sigma = 0.5)
-            })),
+                             K = 10,
+                             sigma = 0.45)
+            }),
+            K = 20,
+            t = 20),
             K = 3)
             
             result_PMSC = PMSC(
               data_list,
               K = 3,
               alpha = 100,
-              beta = 0.001,
+              beta = 0.01,
               gamma = 0.001
             )$Y
             
-            c(
-              calNMI(true_label, result_kmeans),
-              calNMI(true_label, result_snf),
-              calNMI(true_label, result_PMSC)
+            result_DIMSC = DiMSC(data_list,3,w_function = cor)$cluster
+            
+            tibble(
+              kmeans =calNMI(true_label, result_kmeans),
+              SNF = calNMI(true_label, result_snf),
+              PMSC = calNMI(true_label, result_PMSC),
+              DIMSC = calNMI(true_label,result_DIMSC)
             )
           }
 ```
 
 
 ```{r}
-t(sim_1) %>% 
-  as_tibble() %>% 
-  rename(kmean = V1, SNF = V2, PSMC = V3)
+sim_1 %>% 
+  pivot_longer(everything()) %>% 
+  mutate(name = forcats::fct_reorder(name,value)) %>% 
+  ggplot(aes(x = name,y = value,colour = name))+
+  geom_boxplot()
 ```
 
 
@@ -267,32 +354,82 @@ do.call(grid.arrange, c(lapply(data_list, function(x) {
 ```
 
 ```{r}
-result_kmeans = kmeans(do.call(cbind, data_list), 3)$cluster
 
-result_snf = spectralClustering(SNF(lapply(data_list, function(x) {
-  affinityMatrix(as.matrix(dist(x)),
-                 K = 20,
-                 sigma = 0.6)
-})),
-K = 3)
-
-result_PMSC = PMSC(
-  data_list,
-  K = 3,
-  alpha = 100,
-  beta = 0.001,
-  gamma = 0.001
-)$Y
-
-c(
-  calNMI(true_label, result_kmeans),
-  calNMI(true_label, result_snf),
-  calNMI(true_label, result_PMSC)
-)
+sim_2 = foreach(
+  i = 1:20,
+  .combine = "rbind",
+  .packages = c("SNFtool", "tidyverse")
+) %dopar% {
+  
+  s1 = rbind(
+    simulate_data(c(1), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10)
+  )
+  
+  
+  s2 = rbind(
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(1), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10)
+  )
+  
+  
+  s3 = rbind(
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(1), n_var = 10),
+    simulate_data(c(0), n_var = 10)
+  )
+  
+  data_list = list(s1, s2, s3)
+  
+  data_list = lapply(data_list, function(x)
+    add_noise(x, 90))
+  
+  true_label = as.factor(sort(rep(1:4, 50)))
+  
+  result_kmeans = kmeans(do.call(cbind, data_list), 4,
+                         algorithm = "MacQueen")$cluster
+  
+  result_snf = spectralClustering(SNF(lapply(data_list, function(x) {
+    affinityMatrix(as.matrix(dist(x)),
+                   K = 10,
+                   sigma = 0.65)
+  }),
+  K = 20,
+  t = 20),
+  K = 4)
+  
+  result_PMSC = PMSC(
+    data_list,
+    K = 4,
+    alpha = 100,
+    beta = 0.01,
+    gamma = 0.001
+  )$Y
+  
+  result_DIMSC = DiMSC(data_list, 4, w_function = cor)$cluster
+  
+  tibble(
+    kmeans = calNMI(true_label, result_kmeans),
+    SNF = calNMI(true_label, result_snf),
+    PMSC = calNMI(true_label, result_PMSC),
+    DIMSC = calNMI(true_label, result_DIMSC)
+  )
+}
 ```
 
-
-### Scenario II
+```{r}
+sim_2 %>% 
+  pivot_longer(everything()) %>% 
+  mutate(name = forcats::fct_reorder(name,value)) %>% 
+  ggplot(aes(x = name,y = value,colour = name))+
+  geom_boxplot()
+```
+### Scenario III
 
 
 ### TCGA result
@@ -304,16 +441,90 @@ methylation = read.csv("data/Human__TCGA_KIRP__JHU_USC__Methylation__Meth450__01
 
 rnaseq = read.csv("data/Human__TCGA_KIRP__UNC__RNAseq__HiSeq_RNA__01_28_2016__BI__Gene__Firehose_RSEM_log2.cct",sep = "\t")
 
+mutation = read.csv("data/Human__TCGA_KIRP__WUSM__Mutation__GAIIx__01_28_2016__BI__Gene__Firehose_MutSig2CV.cbt",sep = "\t")
+
 survival = read.csv("data/Human__TCGA_KIRP__MS__Clinical__Clinical__01_28_2016__BI__Clinical__Firehose.tsi",sep = "\t") 
 
-sample_name = intersect(intersect(colnames(mirna),colnames(methylation)),
-                        colnames(rnaseq))
+sample_name = intersect(intersect(intersect(colnames(mirna),colnames(methylation)),
+                        colnames(rnaseq)),
+                        colnames(mutation))
 
-mirna = t(mirna[,sample_name])
-methylation = t(methylation[,sample_name])
-rnaseq = t(rnaseq[,sample_name])
+mirna = t(mirna[,sample_name[-1]])
+mutation = t(mutation[,sample_name[-1]])
+methylation = t(methylation[,sample_name[-1]])
+methylation =
+  apply(methylation, 2, function(y) {
+    y[is.na(y)] = mean(y, na.rm = T)
+    y
+  })
+
+rnaseq = t(rnaseq[,sample_name[-1]])
+
 survival = t(survival[,sample_name])
+colnames(survival) = survival[1,]
+survival = survival[-1,] %>% 
+  as_tibble() %>% 
+  mutate(subject = rownames(.)) %>% 
+  separate(overallsurvival,into = c("time","event"),sep = ",") %>% 
+  mutate(across(c(event,time),as.numeric))
 ```
+
+
+```{r}
+# sil_score = c()
+# result_kmeans = list()
+# for (k in 2:10) {
+#   result_kmeans[[k]] = kmeans(cbind(mirna, methylation, rnaseq, mutation), k, algorithm = "MacQueen")$cluster
+#   sil_score[k] = mean(cluster::silhouette(result_kmeans[[k]], dist(cbind(mirna, methylation, rnaseq, mutation)))[,3])
+# }
+
+# plot(1:10,sil_score)
+
+result_kmeans = kmeans(cbind(mirna, methylation, rnaseq, mutation), 3, algorithm = "MacQueen",nstart = 3)$cluster
+
+survival$cluster = result_kmeans
+
+autoplot(survfit(Surv(time, event) ~ cluster, data = survival), main = "Kmeans")
+```
+
+
+
+```{r}
+affinity_list = lapply(list(mirna, methylation, rnaseq,mutation),
+                       function(x) {
+                         affinityMatrix(as.matrix(dist(x)),
+                                        K = 20,
+                                        sigma = 0.5)
+                       })
+
+# plot(1:20,eigen(normalize(SNF(affinity_list,K = 20)))$val[1:20])
+
+result_snf = spectralClustering(SNF(affinity_list,K = 20),3)
+
+survival$cluster = result_snf
+
+autoplot(survfit(Surv(time,event)~cluster,data = survival),main = "SNF")
+```
+
+
+```{r}
+result_PMSC = PMSC(list(mirna,methylation,rnaseq),K=3,beta = 0.01)$Y
+
+survival$cluster = result_PMSC
+
+autoplot(survfit(Surv(time,event)~cluster,data = survival),main = "PMSC")
+```
+
+
+
+```{r}
+result_DIMSC = DiMSC(list(mirna,mutation,rnaseq,methylation),K=3)$cluster
+
+survival$cluster = result_DIMSC
+
+autoplot(survfit(Surv(time,event)~cluster,data = survival),main = "DIMSC")
+```
+
 
 
 
