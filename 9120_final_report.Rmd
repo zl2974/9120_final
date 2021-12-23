@@ -19,7 +19,8 @@ header-includes:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F,
                       warning = F,
-                      message = F)
+                      message = F,
+                      cache = T)
 
 library(SNFtool)
 library(tidyverse)
@@ -189,15 +190,12 @@ Three data are generated to represent 4 clusters, in each cluster we have 100 su
 For data 1, the signal features for cluster 1 are sample from N(1,1) and the other clusters from N(0,1), such that data 1 have 2 separable clusters and cluster 1 can be separated from 2,3 and 4. The other data follow similar design such that data 2 can separate cluster 2 from 1,2,4 and data 3 separate cluster 3 from 1,2 and 4. 
 
 
-In the second settings, we follow the same design but set all the standard deviation to 2 to decrease the effect size.
-
-In the third settings, we further decrease the effect size by setting the standard deviation to 3.
+In the second settings, we follow the same design but set all the noise feature to 990 decrease the signal to noise ratio.
 
 I will compare k-means with data concatenation against SNF with spectral clusting and DIMSC with spectral clustering
 
-#### scenario III
 
-Again we have 3 data and 4 clusters, each cluster has 100 subjects. In this scenario, data 1 has 1000 features, data 2 has 1e+4 and data 3 has 1e+5 features. The first 10% features are set to be signals and the rest as noise sample from N(0,1). we set the signal in each data as scenario I such that all data are needed to find ground truth clustering result. We also test the case when effect size is set as settings 2,3 in scenario I.
+### Data
 
 # Result
 
@@ -205,7 +203,7 @@ Again we have 3 data and 4 clusters, each cluster has 100 subjects. In this scen
 
 ### Scenario I
 
-```{r}
+```{r data1}
 s1 = rbind(
   simulate_data(c(0, 0, 1), n_var = 48,sigma = 2),
   simulate_data(c(1, 0, 0), n_var = 48,sigma = 2),
@@ -239,7 +237,7 @@ do.call(grid.arrange, c(lapply(data_list, function(x) {
 
 
 
-```{r}
+```{r simulation1}
 set.seed(123123)
 
 # pretrain_1 = SNF_tuning(data_list,K=3)
@@ -302,7 +300,7 @@ sim_1 =
 ```
 
 
-```{r}
+```{r sim1reuslt}
 sim_1 %>% 
   pivot_longer(everything()) %>% 
   mutate(name = forcats::fct_reorder(name,value)) %>% 
@@ -313,7 +311,7 @@ sim_1 %>%
 
 ### Scenario II
 
-```{r}
+```{r data2}
 s1 = rbind(
   simulate_data(c(1), n_var = 10),
   simulate_data(c(0), n_var = 10),
@@ -353,7 +351,7 @@ do.call(grid.arrange, c(lapply(data_list, function(x) {
 }), ncol = 2))
 ```
 
-```{r}
+```{r simulation21}
 
 sim_2 = foreach(
   i = 1:20,
@@ -422,14 +420,101 @@ sim_2 = foreach(
 }
 ```
 
-```{r}
+```{r sim21reuslt}
 sim_2 %>% 
   pivot_longer(everything()) %>% 
   mutate(name = forcats::fct_reorder(name,value)) %>% 
   ggplot(aes(x = name,y = value,colour = name))+
   geom_boxplot()
 ```
-### Scenario III
+
+#### Settings 2
+
+```{r eval = F,include=F}
+set.seed(123123)
+
+pretrain_1 = SNF_tuning(data_list,K=4)
+pretrain_1$NMI = sapply(pretrain_1$cluster,function(x) calNMI(true_label,x))
+pretrain_1[which.max(pretrain_1$NMI),]
+```
+
+
+```{r simulation22}
+
+sim_3 = foreach(
+  i = 1:20,
+  .combine = "rbind",
+  .packages = c("SNFtool", "tidyverse")
+) %dopar% {
+  
+  s1 = rbind(
+    simulate_data(c(1), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10)
+  )
+  
+  
+  s2 = rbind(
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(1), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10)
+  )
+  
+  
+  s3 = rbind(
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(0), n_var = 10),
+    simulate_data(c(1), n_var = 10),
+    simulate_data(c(0), n_var = 10)
+  )
+  
+  data_list = list(s1, s2, s3)
+  
+  data_list = lapply(data_list, function(x)
+    add_noise(x, 990))
+  
+  true_label = as.factor(sort(rep(1:4, 50)))
+  
+  result_kmeans = kmeans(do.call(cbind, data_list), 4,
+                         algorithm = "MacQueen")$cluster
+  
+  result_snf = spectralClustering(SNF(lapply(data_list, function(x) {
+    affinityMatrix(as.matrix(dist(x)),
+                   K = 50,
+                   sigma = 0.8)
+  }),
+  K = 20,
+  t = 20),
+  K = 4)
+  
+  result_PMSC = PMSC(
+    data_list,
+    K = 4,
+    alpha = 100,
+    beta = 0.01,
+    gamma = 0.001
+  )$Y
+  
+  result_DIMSC = DiMSC(data_list, 4, w_function = cor)$cluster
+  
+  tibble(
+    kmeans = calNMI(true_label, result_kmeans),
+    SNF = calNMI(true_label, result_snf),
+    PMSC = calNMI(true_label, result_PMSC),
+    DIMSC = calNMI(true_label, result_DIMSC)
+  )
+}
+```
+
+```{r sim22result}
+sim_3 %>% 
+  pivot_longer(everything()) %>% 
+  mutate(name = forcats::fct_reorder(name,value)) %>% 
+  ggplot(aes(x = name,y = value,colour = name))+
+  geom_boxplot()
+```
 
 
 ### TCGA result
