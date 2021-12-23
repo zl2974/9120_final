@@ -12,7 +12,6 @@ header-includes:
   - \usepackage{algpseudocode}
   - \usepackage{algorithm}
   - \usepackage{todonotes}
-  - \usepackage[backend=biber,style=apa,]{biblatex}
 ---
 
 
@@ -105,12 +104,19 @@ add_noise = function(data,p_noise,sigma = NULL){
 
 ### Similarity Network Fusion
 
-
+Similarity Network based method use the similarity calcuate with some kernel apply to some distance measure. In this report, we will use gaussian kernel and eucludian distance.
 $$P(i,j) = exp(\frac{dist(X_i-X_j)}{\sigma})$$
 
+After we calculated the similarity matrix, one can perform spectural clustering on the similarity matrix to get clustering result. The spectural clustering question solves for a lower rank indicator matrix $f$, that $minTr(f(I-P)f^t)~,s.t.~f^tf = I$. 
+
+SNF instead of using a single similarity matrix, it first create another set of similarity matrix only keeping the k-nearest neighbour's edges. 
+
 $$S = knn(P)$$
+And use the local similarity matrix S of other data, iteratively updating current data's similarity matrix P, until converge.
 
 $$P_1^{t+1} = S_2^tP_1^tS_2^t$$
+By iteratively updating, the infomation of other data fused together.
+
 
 ```{r}
 data("Data1")
@@ -162,6 +168,8 @@ plot(g3)
 
 ### DIMSC
 
+Diversity Induce Mulitview Subspace clustering also perform clustering from similarity matrix. It use so-call "self-expressiveness" $$||X - XZ||$$ to calculate the similarity matrix Z, and perform spectural clustring. In DIMSC, the algorithm simultaneously updating similarity matrix of each data, and also introduce a penalty term penalizes correlation between the similarity from different data view. Such that each similarity matrix learn some information not in the other data. And suming all similarity matrix in the end as a single similarity matrix for other task.
+
 $$argmin_Z\sum_v||X^v-X^vZ^v|| + \alpha Tr(Z^vL^vZ^v) +\beta\mbox{Ind}(Z^1,Z^2,...Z^v)$$
 
 ```{r}
@@ -174,7 +182,11 @@ levelplot(a$A,cuts=8)
 
 ### PMSC
 
+Partition level multiview subspace clustering is similar to above methods and solve for following loss fuction. 
 $$argmin_{Z,F,Y} \sum_v||X^v-X^vZ^v|| + \alpha Tr(F^vZ^vF^{v^T}) + \beta||YY^T-F^vF^{v^T}||+\gamma Sparsity$$
+
+But instead of perform clustering on a single similarity in the end, the method solve for clustering result of each data types during updating and also introduces a common clustering result $Y$ and use the clustering result to help learn similarity matrix. By iteratively updating similarity matrix, clustering of each data types and the common clustering result, the Data information is integrated together.
+
 
 ### Simulation
 
@@ -197,11 +209,18 @@ I will compare k-means with data concatenation against SNF with spectral clustin
 
 ### Data
 
+TCGA’s Kidney Renal Cell Carcinoma subset including 291 tumor samples. \cite{cancer2016comprehensive} has found experiment result of 2 subtypes of Renal Cell Carcinoma that related to patients survival. We will use patient survival to see the clustering result of the comparing models.
+In this report, to integrate data to boost signal, we include:
+Methylation at Gene level(Illumina HM450K platform), gene mutation(Somatic mutations at gene level SNV) and RNAseq(HiSeq platform) are selected
+for the study for both types of RCC.  Missing observation in the methylation data is assumed to be Missing-at-random and use K-nearest-neighbour method for imputation.
+
 # Result
 
 ## Simulation
 
 ### Scenario I
+
+We deplay the data designed and the simulation result.
 
 ```{r data1}
 s1 = rbind(
@@ -305,9 +324,11 @@ sim_1 %>%
   pivot_longer(everything()) %>% 
   mutate(name = forcats::fct_reorder(name,value)) %>% 
   ggplot(aes(x = name,y = value,colour = name))+
-  geom_boxplot()
+  geom_boxplot()+
+  labs(title = "Simulation 2,setting2")
 ```
 
+From simulation result, we can see that in this settings, data integration methods are better than the data concatenation and k-means method. PMSC is outperform all other methods.
 
 ### Scenario II
 
@@ -342,12 +363,12 @@ data_list = lapply(data_list, function(x) add_noise(x,90))
 true_label = as.factor(sort(rep(1:4, 50)))
 
 do.call(grid.arrange, c(lapply(data_list, function(x)
-  levelplot(t(x), aspect = "fill",main = "scenario I")), ncol = 2))
+  levelplot(t(x), aspect = "fill",main = "scenario II")), ncol = 2))
 
 do.call(grid.arrange, c(lapply(data_list, function(x) {
   x = as_tibble(x)
   x$label = true_label
-  autoplot(prcomp(x[,-ncol(x)]), data = x, colour = "label",main = "Scenario I")
+  autoplot(prcomp(x[,-ncol(x)]), data = x, colour = "label",main = "Scenario II")
 }), ncol = 2))
 ```
 
@@ -427,6 +448,9 @@ sim_2 %>%
   ggplot(aes(x = name,y = value,colour = name))+
   geom_boxplot()
 ```
+
+In the second simultion, we can see that the data fit our design, and comparing these methods, we can see that both data integration methods designs for computer vision fail in this specific settings. but SNF and PMSC still out-perform data concatenation and k-means. But as we reduce the signal to noise ratio, although they still slightly out-perform kmeans, but the overall NMI is negligible to consider.
+
 
 #### Settings 2
 
@@ -513,13 +537,14 @@ sim_3 %>%
   pivot_longer(everything()) %>% 
   mutate(name = forcats::fct_reorder(name,value)) %>% 
   ggplot(aes(x = name,y = value,colour = name))+
-  geom_boxplot()
+  geom_boxplot()+
+  labs(title = "Simulation 2,setting2")
 ```
 
 
 ### TCGA result
 
-```{r}
+```{r tcga,echo=F}
 mirna = read.csv("data/Human__TCGA_KIRP__BDGSC__miRNASeq__HS_miR__01_28_2016__BI__Gene__Firehose_RPM_log2.cct",sep = "\t")
 
 methylation = read.csv("data/Human__TCGA_KIRP__JHU_USC__Methylation__Meth450__01_28_2016__BI__Gene__Firehose_Methylation_Prepocessor.cct",sep = "\t")
@@ -555,65 +580,91 @@ survival = survival[-1,] %>%
 ```
 
 
-```{r}
-# sil_score = c()
-# result_kmeans = list()
-# for (k in 2:10) {
-#   result_kmeans[[k]] = kmeans(cbind(mirna, methylation, rnaseq, mutation), k, algorithm = "MacQueen")$cluster
-#   sil_score[k] = mean(cluster::silhouette(result_kmeans[[k]], dist(cbind(mirna, methylation, rnaseq, mutation)))[,3])
-# }
 
-# plot(1:10,sil_score)
 
-result_kmeans = kmeans(cbind(mirna, methylation, rnaseq, mutation), 3, algorithm = "MacQueen",nstart = 3)$cluster
+```{r skmean}
+result_kmeans = kmeans(mirna, 3, algorithm = "MacQueen")$cluster
 
 survival$cluster = result_kmeans
 
-autoplot(survfit(Surv(time, event) ~ cluster, data = survival), main = "Kmeans")
+autoplot(survfit(Surv(time, event) ~ cluster, data = survival), main = "Single-Kmeans")
+
+sur_skmean = survdiff(Surv(time, event) ~ cluster, data = survival)
+```
+
+```{r ckmean}
+result_kmeans = kmeans(cbind(mirna, methylation, rnaseq, mutation), 3, algorithm = "MacQueen")$cluster
+
+survival$cluster = result_kmeans
+
+autoplot(survfit(Surv(time, event) ~ cluster, data = survival), main = "Concatenate-Kmeans")
+
+sur_ckmean = survdiff(Surv(time, event) ~ cluster, data = survival)
 ```
 
 
+```{r surSNF}
 
-```{r}
 affinity_list = lapply(list(mirna, methylation, rnaseq,mutation),
                        function(x) {
                          affinityMatrix(as.matrix(dist(x)),
-                                        K = 20,
+                                        K = 30,
                                         sigma = 0.5)
                        })
 
 # plot(1:20,eigen(normalize(SNF(affinity_list,K = 20)))$val[1:20])
 
-result_snf = spectralClustering(SNF(affinity_list,K = 20),3)
+result_snf = spectralClustering(SNF(affinity_list,K = 30),3)
 
 survival$cluster = result_snf
 
 autoplot(survfit(Surv(time,event)~cluster,data = survival),main = "SNF")
+sur_SNF = survdiff(Surv(time, event) ~ cluster, data = survival)
 ```
 
 
-```{r}
-result_PMSC = PMSC(list(mirna,methylation,rnaseq),K=3,beta = 0.01)$Y
+```{r PMSC}
+result_PMSC = PMSC(list(mirna,methylation,rnaseq),K=3,beta = 0.01,.max_iter = 20)$Y
 
 survival$cluster = result_PMSC
 
 autoplot(survfit(Surv(time,event)~cluster,data = survival),main = "PMSC")
+sur_PMSC = survdiff(Surv(time, event) ~ cluster, data = survival)
 ```
 
 
 
-```{r}
+```{r DIMSC}
 result_DIMSC = DiMSC(list(mirna,mutation,rnaseq,methylation),K=3)$cluster
 
 survival$cluster = result_DIMSC
 
 autoplot(survfit(Surv(time,event)~cluster,data = survival),main = "DIMSC")
+sur_DIMSC = survdiff(Surv(time, event) ~ cluster, data = survival)
 ```
 
 
+```{r sur_comp}
+tibble(
+  method = c("single kmean", "concatanate kmean", "SNF", "DISMC", "PMSC"),
+  log_rank_test = lapply(list(sur_skmean, sur_ckmean, sur_SNF, sur_DIMSC, sur_PMSC), function(x)
+    x$chis)
+) %>%
+  knitr::kable(caption = "Log-Rank test for survival trend")
+```
 
+ We choose 3 subtypes based on the maximum eigen gap of the similarity matrix of all 3 data set, and compare the survival of all methods clustering patient into 3 clusters against selecting using only miRNA to perform the clusters. 
+ 
+ We can see that SNF clusters patients into 2 group has better survival and 1 group with worse outcomes. SNF has a more statistically significant survival difference than single kmeans and concatenate-data kmeans. 
+ 
+ DISMC perform poorly in identifing the survival function. PMSC cluster 2 group has worse outcome and 1 group with better outcome.
+
+
+# Discussion
+
+Data integration can boost signal when the signal is weak in single data types. But we also see that K-mean with single data types can have similar performance when the signal is strong enough to separate all clusters. DIMSC have high performance in all data have similar data structure settings, but fails when this setting is change. We can see that this method without modification might not suitable for omics data's task.
 
 \bibliographystyle{alpha}
-\bibliography{reference}
+\bibliography{scholar}
 
 
